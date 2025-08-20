@@ -1,0 +1,849 @@
+<!DOCTYPE html>
+<html lang="sv">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>BIK Karlskoga - Försäljningsstatistik</title>
+    
+    <!-- Supabase -->
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    
+    <!-- Chart.js för grafer -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    
+    <!-- SheetJS för Excel-export -->
+    <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+    
+    <style>
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+        
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #1e3c72 0%, #2a5298 100%);
+            min-height: 100vh;
+            padding: 20px;
+        }
+        
+        .header {
+            text-align: center;
+            color: white;
+            margin-bottom: 30px;
+        }
+        
+        .header h1 {
+            font-size: 2.5em;
+            text-shadow: 2px 2px 4px rgba(0,0,0,0.3);
+            margin-bottom: 10px;
+        }
+        
+        .header p {
+            font-size: 1.2em;
+            opacity: 0.9;
+        }
+        
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+        }
+        
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+            gap: 20px;
+            margin-bottom: 30px;
+        }
+        
+        .stat-card {
+            background: white;
+            padding: 20px;
+            border-radius: 15px;
+            box-shadow: 0 8px 25px rgba(0,0,0,0.15);
+            text-align: center;
+        }
+        
+        .stat-card h3 {
+            color: #666;
+            font-size: 0.9em;
+            margin-bottom: 10px;
+            text-transform: uppercase;
+        }
+        
+        .stat-card .value {
+            color: #1e3c72;
+            font-size: 2.5em;
+            font-weight: bold;
+            margin-bottom: 5px;
+        }
+        
+        .stat-card .change {
+            font-size: 0.9em;
+            color: #28a745;
+        }
+        
+        .stat-card .change.negative {
+            color: #dc3545;
+        }
+        
+        .chart-container {
+            background: white;
+            padding: 25px;
+            border-radius: 15px;
+            box-shadow: 0 8px 25px rgba(0,0,0,0.15);
+            margin-bottom: 30px;
+        }
+        
+        .chart-container h2 {
+            color: #1e3c72;
+            margin-bottom: 20px;
+            padding-bottom: 10px;
+            border-bottom: 3px solid #2a5298;
+        }
+        
+        .controls {
+            background: white;
+            padding: 20px;
+            border-radius: 15px;
+            box-shadow: 0 8px 25px rgba(0,0,0,0.15);
+            margin-bottom: 30px;
+            display: flex;
+            flex-wrap: wrap;
+            gap: 15px;
+            align-items: center;
+        }
+        
+        .controls label {
+            font-weight: bold;
+            color: #333;
+        }
+        
+        .controls input, .controls select {
+            padding: 10px;
+            border: 2px solid #ddd;
+            border-radius: 8px;
+            font-size: 16px;
+        }
+        
+        .controls button {
+            padding: 10px 20px;
+            background: #2a5298;
+            color: white;
+            border: none;
+            border-radius: 8px;
+            cursor: pointer;
+            font-weight: bold;
+            transition: background 0.3s;
+        }
+        
+        .controls button:hover {
+            background: #1e3c72;
+        }
+        
+        .export-buttons {
+            display: flex;
+            gap: 10px;
+            margin-left: auto;
+        }
+        
+        .export-buttons button {
+            background: #28a745;
+        }
+        
+        .export-buttons button:hover {
+            background: #218838;
+        }
+        
+        .table-container {
+            background: white;
+            padding: 25px;
+            border-radius: 15px;
+            box-shadow: 0 8px 25px rgba(0,0,0,0.15);
+            overflow-x: auto;
+        }
+        
+        .table-container h2 {
+            color: #1e3c72;
+            margin-bottom: 20px;
+            padding-bottom: 10px;
+            border-bottom: 3px solid #2a5298;
+        }
+        
+        table {
+            width: 100%;
+            border-collapse: collapse;
+        }
+        
+        th {
+            background: #f8f9fa;
+            color: #1e3c72;
+            padding: 12px;
+            text-align: left;
+            font-weight: bold;
+            border-bottom: 2px solid #dee2e6;
+        }
+        
+        td {
+            padding: 10px 12px;
+            border-bottom: 1px solid #eee;
+        }
+        
+        tr:hover {
+            background: #f8f9fa;
+        }
+        
+        .loading {
+            text-align: center;
+            padding: 40px;
+            color: #666;
+        }
+        
+        .loading::after {
+            content: '...';
+            animation: loading 1.5s infinite;
+        }
+        
+        @keyframes loading {
+            0% { content: '.'; }
+            33% { content: '..'; }
+            66% { content: '...'; }
+        }
+        
+        .error {
+            background: #f8d7da;
+            color: #721c24;
+            padding: 15px;
+            border-radius: 8px;
+            margin: 20px 0;
+            border: 1px solid #f5c6cb;
+        }
+        
+        .chart-wrapper {
+            position: relative;
+            height: 400px;
+            margin-top: 20px;
+        }
+        
+        @media (max-width: 768px) {
+            .header h1 {
+                font-size: 1.8em;
+            }
+            
+            .stats-grid {
+                grid-template-columns: 1fr;
+            }
+            
+            .controls {
+                flex-direction: column;
+                align-items: stretch;
+            }
+            
+            .export-buttons {
+                margin-left: 0;
+                width: 100%;
+            }
+            
+            .export-buttons button {
+                flex: 1;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <h1>📊 BIK Karlskoga - Försäljningsstatistik</h1>
+        <p id="currentDateTime">Laddar...</p>
+    </div>
+    
+    <div class="container">
+        <!-- Kontroller -->
+        <div class="controls">
+            <label>
+                Från datum:
+                <input type="date" id="startDate">
+            </label>
+            <label>
+                Till datum:
+                <input type="date" id="endDate">
+            </label>
+            <label>
+                Period:
+                <select id="periodSelect">
+                    <option value="today">Idag</option>
+                    <option value="yesterday">Igår</option>
+                    <option value="week" selected>Denna vecka</option>
+                    <option value="month">Denna månad</option>
+                    <option value="lastMonth">Förra månaden</option>
+                    <option value="custom">Anpassad</option>
+                </select>
+            </label>
+            <button onclick="loadStatistics()">🔄 Uppdatera</button>
+            
+            <div class="export-buttons">
+                <button onclick="exportToExcel()">📊 Export Excel</button>
+                <button onclick="exportToCSV()">📄 Export CSV</button>
+                <button onclick="window.print()">🖨️ Skriv ut</button>
+            </div>
+        </div>
+        
+        <!-- Översiktskort -->
+        <div class="stats-grid">
+            <div class="stat-card">
+                <h3>Total försäljning</h3>
+                <div class="value" id="totalSales">0 kr</div>
+                <div class="change" id="salesChange">-</div>
+            </div>
+            <div class="stat-card">
+                <h3>Antal transaktioner</h3>
+                <div class="value" id="totalTransactions">0</div>
+                <div class="change" id="transChange">-</div>
+            </div>
+            <div class="stat-card">
+                <h3>Snittköp</h3>
+                <div class="value" id="avgTransaction">0 kr</div>
+                <div class="change" id="avgChange">-</div>
+            </div>
+            <div class="stat-card">
+                <h3>Mest sålda produkt</h3>
+                <div class="value" id="topProduct" style="font-size: 1.5em;">-</div>
+                <div class="change" id="topProductCount">-</div>
+            </div>
+        </div>
+        
+        <!-- Försäljning över tid -->
+        <div class="chart-container">
+            <h2>📈 Försäljning över tid</h2>
+            <div class="chart-wrapper">
+                <canvas id="salesChart"></canvas>
+            </div>
+        </div>
+        
+        <!-- Produktfördelning -->
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 30px;">
+            <div class="chart-container">
+                <h2>🥧 Produktfördelning</h2>
+                <div class="chart-wrapper" style="height: 300px;">
+                    <canvas id="productChart"></canvas>
+                </div>
+            </div>
+            
+            <div class="chart-container">
+                <h2>📊 Topp 10 produkter</h2>
+                <div class="chart-wrapper" style="height: 300px;">
+                    <canvas id="topProductsChart"></canvas>
+                </div>
+            </div>
+        </div>
+        
+        <!-- Detaljerad tabell -->
+        <div class="table-container">
+            <h2>📋 Transaktionsdetaljer</h2>
+            <div id="tableContent">
+                <div class="loading">Laddar transaktioner</div>
+            </div>
+        </div>
+    </div>
+    
+    <script>
+        // ========================================
+        // SUPABASE KONFIGURATION
+        // ========================================
+        // BYTA UT DESSA MED DINA VÄRDEN!
+        const SUPABASE_URL = 'https://notuhncgibrtlkktopnz.supabase.co';
+        const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im5vdHVobmNnaWJydGxra3RvcG56Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTU2Nzc1NzYsImV4cCI6MjA3MTI1MzU3Nn0.d5UxBzsxgnXEkQdKMb-m1vvVcOdqLp5HoTM1Joatc3w';
+        
+        // Initiera Supabase
+        const { createClient } = supabase;
+        const supabaseClient = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+        
+        // ========================================
+        // GLOBALA VARIABLER
+        // ========================================
+        let allPurchases = [];
+        let salesChart = null;
+        let productChart = null;
+        let topProductsChart = null;
+        
+        // ========================================
+        // DATUM OCH TID
+        // ========================================
+        function updateDateTime() {
+            const now = new Date();
+            document.getElementById('currentDateTime').textContent = 
+                now.toLocaleString('sv-SE', { 
+                    weekday: 'long', 
+                    year: 'numeric', 
+                    month: 'long', 
+                    day: 'numeric',
+                    hour: '2-digit',
+                    minute: '2-digit'
+                });
+        }
+        
+        function setDateRange(period) {
+            const today = new Date();
+            const startDate = document.getElementById('startDate');
+            const endDate = document.getElementById('endDate');
+            
+            switch(period) {
+                case 'today':
+                    startDate.value = today.toISOString().split('T')[0];
+                    endDate.value = today.toISOString().split('T')[0];
+                    break;
+                case 'yesterday':
+                    const yesterday = new Date(today);
+                    yesterday.setDate(yesterday.getDate() - 1);
+                    startDate.value = yesterday.toISOString().split('T')[0];
+                    endDate.value = yesterday.toISOString().split('T')[0];
+                    break;
+                case 'week':
+                    const weekStart = new Date(today);
+                    weekStart.setDate(today.getDate() - today.getDay() + 1); // Måndag
+                    startDate.value = weekStart.toISOString().split('T')[0];
+                    endDate.value = today.toISOString().split('T')[0];
+                    break;
+                case 'month':
+                    const monthStart = new Date(today.getFullYear(), today.getMonth(), 1);
+                    startDate.value = monthStart.toISOString().split('T')[0];
+                    endDate.value = today.toISOString().split('T')[0];
+                    break;
+                case 'lastMonth':
+                    const lastMonthStart = new Date(today.getFullYear(), today.getMonth() - 1, 1);
+                    const lastMonthEnd = new Date(today.getFullYear(), today.getMonth(), 0);
+                    startDate.value = lastMonthStart.toISOString().split('T')[0];
+                    endDate.value = lastMonthEnd.toISOString().split('T')[0];
+                    break;
+            }
+        }
+        
+        // ========================================
+        // LADDA DATA FRÅN SUPABASE
+        // ========================================
+        async function loadStatistics() {
+            try {
+                const startDate = document.getElementById('startDate').value;
+                const endDate = document.getElementById('endDate').value;
+                
+                if (!startDate || !endDate) {
+                    alert('Välj både start- och slutdatum');
+                    return;
+                }
+                
+                // Visa laddningsindikator
+                document.getElementById('tableContent').innerHTML = '<div class="loading">Laddar transaktioner</div>';
+                
+                // Hämta data från Supabase
+                let query = supabaseClient
+                    .from('purchases')
+                    .select('*')
+                    .gte('created_at', startDate + 'T00:00:00')
+                    .lte('created_at', endDate + 'T23:59:59')
+                    .order('created_at', { ascending: false });
+                
+                const { data, error } = await query;
+                
+                if (error) throw error;
+                
+                allPurchases = data || [];
+                
+                // Uppdatera all statistik
+                updateOverviewCards();
+                updateSalesChart();
+                updateProductCharts();
+                updateTransactionTable();
+                
+            } catch (error) {
+                console.error('Fel vid laddning av statistik:', error);
+                document.getElementById('tableContent').innerHTML = 
+                    `<div class="error">Kunde inte ladda statistik: ${error.message}</div>`;
+            }
+        }
+        
+        // ========================================
+        // UPPDATERA ÖVERSIKTSKORT
+        // ========================================
+        function updateOverviewCards() {
+            const totalSales = allPurchases.reduce((sum, p) => sum + parseFloat(p.total_amount || 0), 0);
+            const totalTransactions = allPurchases.length;
+            const avgTransaction = totalTransactions > 0 ? totalSales / totalTransactions : 0;
+            
+            // Räkna produkter
+            const productCounts = {};
+            allPurchases.forEach(purchase => {
+                if (purchase.items && Array.isArray(purchase.items)) {
+                    purchase.items.forEach(item => {
+                        productCounts[item.name] = (productCounts[item.name] || 0) + (item.quantity || 1);
+                    });
+                }
+            });
+            
+            const topProduct = Object.entries(productCounts)
+                .sort((a, b) => b[1] - a[1])[0];
+            
+            // Uppdatera DOM
+            document.getElementById('totalSales').textContent = `${totalSales.toFixed(0)} kr`;
+            document.getElementById('totalTransactions').textContent = totalTransactions;
+            document.getElementById('avgTransaction').textContent = `${avgTransaction.toFixed(0)} kr`;
+            
+            if (topProduct) {
+                document.getElementById('topProduct').textContent = topProduct[0];
+                document.getElementById('topProductCount').textContent = `${topProduct[1]} st sålda`;
+            }
+        }
+        
+        // ========================================
+        // UPPDATERA FÖRSÄLJNINGSGRAF
+        // ========================================
+        function updateSalesChart() {
+            const ctx = document.getElementById('salesChart').getContext('2d');
+            
+            // Gruppera försäljning per dag
+            const salesByDay = {};
+            allPurchases.forEach(purchase => {
+                const date = new Date(purchase.created_at).toLocaleDateString('sv-SE');
+                salesByDay[date] = (salesByDay[date] || 0) + parseFloat(purchase.total_amount || 0);
+            });
+            
+            // Sortera datum
+            const sortedDates = Object.keys(salesByDay).sort((a, b) => 
+                new Date(a.split('-').reverse().join('-')) - new Date(b.split('-').reverse().join('-'))
+            );
+            
+            // Förstör tidigare graf om den finns
+            if (salesChart) {
+                salesChart.destroy();
+            }
+            
+            // Skapa ny graf
+            salesChart = new Chart(ctx, {
+                type: 'line',
+                data: {
+                    labels: sortedDates,
+                    datasets: [{
+                        label: 'Försäljning (kr)',
+                        data: sortedDates.map(date => salesByDay[date]),
+                        borderColor: '#2a5298',
+                        backgroundColor: 'rgba(42, 82, 152, 0.1)',
+                        borderWidth: 3,
+                        tension: 0.4,
+                        fill: true
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        legend: {
+                            display: false
+                        },
+                        tooltip: {
+                            callbacks: {
+                                label: function(context) {
+                                    return `Försäljning: ${context.parsed.y.toFixed(0)} kr`;
+                                }
+                            }
+                        }
+                    },
+                    scales: {
+                        y: {
+                            beginAtZero: true,
+                            ticks: {
+                                callback: function(value) {
+                                    return value + ' kr';
+                                }
+                            }
+                        }
+                    }
+                }
+            });
+        }
+        
+        // ========================================
+        // UPPDATERA PRODUKTGRAFER
+        // ========================================
+        function updateProductCharts() {
+            // Räkna produkter
+            const productSales = {};
+            allPurchases.forEach(purchase => {
+                if (purchase.items && Array.isArray(purchase.items)) {
+                    purchase.items.forEach(item => {
+                        if (!productSales[item.name]) {
+                            productSales[item.name] = {
+                                quantity: 0,
+                                revenue: 0
+                            };
+                        }
+                        productSales[item.name].quantity += (item.quantity || 1);
+                        productSales[item.name].revenue += parseFloat(item.price || 0) * (item.quantity || 1);
+                    });
+                }
+            });
+            
+            // Sortera produkter efter intäkter
+            const sortedProducts = Object.entries(productSales)
+                .sort((a, b) => b[1].revenue - a[1].revenue);
+            
+            // PIE CHART - Produktfördelning
+            const pieCtx = document.getElementById('productChart').getContext('2d');
+            if (productChart) {
+                productChart.destroy();
+            }
+            
+            const topProducts = sortedProducts.slice(0, 6);
+            const otherRevenue = sortedProducts.slice(6).reduce((sum, [_, data]) => sum + data.revenue, 0);
+            
+            productChart = new Chart(pieCtx, {
+                type: 'doughnut',
+                data: {
+                    labels: [...topProducts.map(([name]) => name), otherRevenue > 0 ? 'Övrigt' : null].filter(Boolean),
+                    datasets: [{
+                        data: [...topProducts.map(([_, data]) => data.revenue), otherRevenue].filter(v => v > 0),
+                        backgroundColor: [
+                            '#2a5298',
+                            '#3a62a8',
+                            '#4a72b8',
+                            '#5a82c8',
+                            '#6a92d8',
+                            '#7aa2e8',
+                            '#8ab2f8'
+                        ]
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        legend: {
+                            position: 'bottom'
+                        },
+                        tooltip: {
+                            callbacks: {
+                                label: function(context) {
+                                    const label = context.label || '';
+                                    const value = context.parsed || 0;
+                                    const total = context.dataset.data.reduce((a, b) => a + b, 0);
+                                    const percentage = ((value / total) * 100).toFixed(1);
+                                    return `${label}: ${value.toFixed(0)} kr (${percentage}%)`;
+                                }
+                            }
+                        }
+                    }
+                }
+            });
+            
+            // BAR CHART - Topp 10 produkter
+            const barCtx = document.getElementById('topProductsChart').getContext('2d');
+            if (topProductsChart) {
+                topProductsChart.destroy();
+            }
+            
+            const top10 = sortedProducts.slice(0, 10);
+            
+            topProductsChart = new Chart(barCtx, {
+                type: 'bar',
+                data: {
+                    labels: top10.map(([name]) => name),
+                    datasets: [{
+                        label: 'Antal sålda',
+                        data: top10.map(([_, data]) => data.quantity),
+                        backgroundColor: '#28a745'
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        legend: {
+                            display: false
+                        }
+                    },
+                    scales: {
+                        y: {
+                            beginAtZero: true,
+                            ticks: {
+                                stepSize: 1
+                            }
+                        }
+                    }
+                }
+            });
+        }
+        
+        // ========================================
+        // UPPDATERA TRANSAKTIONSTABELL
+        // ========================================
+        function updateTransactionTable() {
+            if (allPurchases.length === 0) {
+                document.getElementById('tableContent').innerHTML = 
+                    '<p style="text-align: center; color: #666;">Inga transaktioner för vald period</p>';
+                return;
+            }
+            
+            let tableHTML = `
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Tid</th>
+                            <th>Kvitto-ID</th>
+                            <th>Produkter</th>
+                            <th>Belopp ex. moms</th>
+                            <th>Moms</th>
+                            <th>Totalt</th>
+                            <th>Kassör</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+            `;
+            
+            allPurchases.forEach(purchase => {
+                const date = new Date(purchase.created_at);
+                const products = purchase.items ? 
+                    purchase.items.map(item => `${item.name} (${item.quantity || 1})`).join(', ') : '-';
+                
+                tableHTML += `
+                    <tr>
+                        <td>${date.toLocaleString('sv-SE')}</td>
+                        <td>${purchase.id}</td>
+                        <td>${products}</td>
+                        <td>${(purchase.amount || 0).toFixed(2)} kr</td>
+                        <td>${(purchase.vat_amount || 0).toFixed(2)} kr</td>
+                        <td><strong>${(purchase.total_amount || 0).toFixed(2)} kr</strong></td>
+                        <td>${purchase.cashier_name || '-'}</td>
+                    </tr>
+                `;
+            });
+            
+            tableHTML += '</tbody></table>';
+            document.getElementById('tableContent').innerHTML = tableHTML;
+        }
+        
+        // ========================================
+        // EXPORT FUNKTIONER
+        // ========================================
+        function exportToExcel() {
+            if (allPurchases.length === 0) {
+                alert('Ingen data att exportera');
+                return;
+            }
+            
+            // Förbered data för Excel
+            const excelData = allPurchases.map(purchase => {
+                const products = purchase.items ? 
+                    purchase.items.map(item => `${item.name} (${item.quantity || 1})`).join(', ') : '';
+                
+                return {
+                    'Datum': new Date(purchase.created_at).toLocaleString('sv-SE'),
+                    'Kvitto-ID': purchase.id,
+                    'Produkter': products,
+                    'Belopp ex. moms': purchase.amount || 0,
+                    'Moms': purchase.vat_amount || 0,
+                    'Totalt': purchase.total_amount || 0,
+                    'Kassör': purchase.cashier_name || '',
+                    'Status': purchase.status || ''
+                };
+            });
+            
+            // Skapa worksheet
+            const ws = XLSX.utils.json_to_sheet(excelData);
+            
+            // Skapa workbook
+            const wb = XLSX.utils.book_new();
+            XLSX.utils.book_append_sheet(wb, ws, 'Försäljning');
+            
+            // Lägg till sammanfattning
+            const summaryData = [
+                ['Sammanfattning'],
+                ['Period', `${document.getElementById('startDate').value} till ${document.getElementById('endDate').value}`],
+                ['Total försäljning', allPurchases.reduce((sum, p) => sum + (p.total_amount || 0), 0)],
+                ['Antal transaktioner', allPurchases.length],
+                ['Snittköp', allPurchases.length > 0 ? 
+                    allPurchases.reduce((sum, p) => sum + (p.total_amount || 0), 0) / allPurchases.length : 0]
+            ];
+            
+            const ws2 = XLSX.utils.aoa_to_sheet(summaryData);
+            XLSX.utils.book_append_sheet(wb, ws2, 'Sammanfattning');
+            
+            // Spara fil
+            const fileName = `BIK_Forsaljning_${document.getElementById('startDate').value}_${document.getElementById('endDate').value}.xlsx`;
+            XLSX.writeFile(wb, fileName);
+        }
+        
+        function exportToCSV() {
+            if (allPurchases.length === 0) {
+                alert('Ingen data att exportera');
+                return;
+            }
+            
+            // Skapa CSV-innehåll
+            let csvContent = 'Datum,Kvitto-ID,Produkter,Belopp ex. moms,Moms,Totalt,Kassör,Status\n';
+            
+            allPurchases.forEach(purchase => {
+                const products = purchase.items ? 
+                    purchase.items.map(item => `${item.name} (${item.quantity || 1})`).join('; ') : '';
+                
+                csvContent += `"${new Date(purchase.created_at).toLocaleString('sv-SE')}",`;
+                csvContent += `"${purchase.id}",`;
+                csvContent += `"${products}",`;
+                csvContent += `${purchase.amount || 0},`;
+                csvContent += `${purchase.vat_amount || 0},`;
+                csvContent += `${purchase.total_amount || 0},`;
+                csvContent += `"${purchase.cashier_name || ''}",`;
+                csvContent += `"${purchase.status || ''}"\n`;
+            });
+            
+            // Skapa blob och ladda ner
+            const blob = new Blob(['\ufeff' + csvContent], { type: 'text/csv;charset=utf-8;' });
+            const link = document.createElement('a');
+            const url = URL.createObjectURL(blob);
+            link.setAttribute('href', url);
+            link.setAttribute('download', `BIK_Forsaljning_${document.getElementById('startDate').value}_${document.getElementById('endDate').value}.csv`);
+            link.style.visibility = 'hidden';
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+        }
+        
+        // ========================================
+        // INIT
+        // ========================================
+        document.addEventListener('DOMContentLoaded', function() {
+            // Uppdatera tid
+            updateDateTime();
+            setInterval(updateDateTime, 60000); // Uppdatera varje minut
+            
+            // Sätt initial datumperiod (denna vecka)
+            setDateRange('week');
+            
+            // Event listener för period-väljaren
+            document.getElementById('periodSelect').addEventListener('change', function(e) {
+                if (e.target.value !== 'custom') {
+                    setDateRange(e.target.value);
+                    loadStatistics();
+                }
+            });
+            
+            // Ladda initial statistik
+            loadStatistics();
+            
+            // Auto-uppdatering var 30:e sekund
+            setInterval(loadStatistics, 30000);
+        });
+        
+        // ========================================
+        // PRINT STYLING
+        // ========================================
+        window.addEventListener('beforeprint', function() {
+            // Anpassa för utskrift
+            document.querySelectorAll('.chart-wrapper').forEach(wrapper => {
+                wrapper.style.height = 'auto';
+            });
+        });
+        
+        window.addEventListener('afterprint', function() {
+            // Återställ efter utskrift
+            document.querySelectorAll('.chart-wrapper').forEach(wrapper => {
+                wrapper.style.height = '';
+            });
+        });
